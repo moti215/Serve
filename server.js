@@ -1,11 +1,11 @@
 const express = require('express');
-const { GoogleGenAI } = require('@google/genai'); // Google GenAI SDK
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
 app.use(express.urlencoded({ extended: false })); // Twilio sends form data
 app.use(express.json());
 
-// Initialize Gemini (Make sure to set GEMINI_API_KEY in your Render environment variables)
+// Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL; // Your deployed Web App URL
@@ -36,7 +36,6 @@ app.post('/whatsapp-webhook', async (req, res) => {
         });
 
         let commandText = aiResponse.text.trim();
-        // Clean up markdown block formatting if Gemini adds it
         commandText = commandText.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
         const command = JSON.parse(commandText);
 
@@ -55,7 +54,7 @@ app.post('/whatsapp-webhook', async (req, res) => {
             : `Error executing action: ${gasResult.message}`;
 
         res.set('Content-Type', 'text/xml');
-        res.send(`<Response><Message>${replyText}</Message></Response>');
+        res.send(`<Response><Message>${replyText}</Message></Response>`);
 
     } catch (error) {
         console.error(error);
