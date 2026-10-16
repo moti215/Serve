@@ -2,44 +2,46 @@ const express = require('express');
 const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
-app.use(express.urlencoded({ extended: false })); // Twilio sends form data
+app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL; // Your deployed Web App URL
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 
 app.post('/whatsapp-webhook', async (req, res) => {
-    const userMessage = req.body.Body; // Message text from WhatsApp via Twilio
+    const userMessage = req.body.Body;
+    console.log("Received WhatsApp Message:", userMessage);
     
     if (!userMessage) {
-        return res.status(400).send('No message found');
+        return res.status(200).send('<Response></Response>');
     }
 
     try {
-        // 1. Ask Gemini to turn the plain English text into a structured JSON command for your app
         const prompt = `
         You are an AI assistant for a Contact Map app. Parse the user's request into a strict JSON command matching one of these actions:
-        - action: "savePerson", payload: { name, phone, email, tags, notes, homeNew (address text if specified) }
+        - action: "savePerson", payload: { name, phone, email, tags, notes, homeNew }
         - action: "logVisit", payload: { placeId, season, date (YYYY-MM-DD), notes }
+        - action: "getContactsData", payload: {}
         
         User request: "${userMessage}"
         Current Date: ${new Date().toISOString().split('T')[0]}
         
-        Return ONLY valid JSON with keys "action" and "payload". No markdown formatting blocks if possible, just raw JSON.
+        Return ONLY valid JSON with keys "action" and "payload". Do not wrap in markdown or backticks.
         `;
 
-        const aiResponse = await ai.models.generateContent({
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
 
-        let commandText = aiResponse.text.trim();
+        let commandText = response.text ? response.text.trim() : '';
+        console.log("AI Output:", commandText);
+
         commandText = commandText.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
         const command = JSON.parse(commandText);
 
-        // 2. Forward the parsed command to your Google Apps Script Web App
+        // Send to Google Apps Script
         const gasResponse = await fetch(APPS_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -47,19 +49,19 @@ app.post('/whatsapp-webhook', async (req, res) => {
         });
         
         const gasResult = await gasResponse.json();
+        console.log("Apps Script Output:", gasResult);
 
-        // 3. Reply back to WhatsApp via Twilio XML
         const replyText = gasResult.status === 'success' 
-            ? `Success! ${gasResult.message || 'Action executed.'}` 
-            : `Error executing action: ${gasResult.message}`;
+            ? `Success! ${gasResult.message || 'Action performed.'}` 
+            : `App Error: ${gasResult.message}`;
 
         res.set('Content-Type', 'text/xml');
         res.send(`<Response><Message>${replyText}</Message></Response>`);
 
     } catch (error) {
-        console.error(error);
+        console.error("Webhook Error:", error);
         res.set('Content-Type', 'text/xml');
-        res.send(`<Response><Message>Sorry, I couldn't process that command.</Message></Response>`);
+        res.send(`<Response><Message>Error: ${error.message}</Message></Response>`);
     }
 });
 
